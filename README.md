@@ -3,6 +3,7 @@
 [![Tests](https://github.com/philiprehberger/rb-retry-queue/actions/workflows/ci.yml/badge.svg)](https://github.com/philiprehberger/rb-retry-queue/actions/workflows/ci.yml)
 [![Gem Version](https://badge.fury.io/rb/philiprehberger-retry_queue.svg)](https://rubygems.org/gems/philiprehberger-retry_queue)
 [![License](https://img.shields.io/github/license/philiprehberger/rb-retry-queue)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 Batch processor with per-item retry, backoff, and dead letter collection
 
