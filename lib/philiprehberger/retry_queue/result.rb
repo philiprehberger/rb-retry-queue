@@ -32,6 +32,29 @@ module Philiprehberger
           elapsed: @elapsed
         }
       end
+
+      # Reprocess failed items by yielding each item and its last error to the block.
+      # Returns a new Result with the reprocessing outcomes.
+      #
+      # @yield [item, error] block that reprocesses a failed item
+      # @return [Result] new result with reprocessing outcomes
+      def reprocess_failed(&block)
+        raise Error, 'a reprocessing block is required' unless block
+
+        reprocess_succeeded = []
+        reprocess_failed = []
+        start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        @failed.each do |entry|
+          block.call(entry[:item], entry[:error])
+          reprocess_succeeded << entry[:item]
+        rescue StandardError => e
+          reprocess_failed << { item: entry[:item], error: e, attempts: 1 }
+        end
+
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
+        Result.new(succeeded: reprocess_succeeded, failed: reprocess_failed, elapsed: elapsed)
+      end
     end
   end
 end
