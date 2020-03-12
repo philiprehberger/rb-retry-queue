@@ -250,7 +250,7 @@ RSpec.describe Philiprehberger::RetryQueue do
       yielded = []
       result.reprocess_failed { |item, error| yielded << [item, error.message] }
 
-      expect(yielded).to eq([['a', 'err-a'], ['b', 'err-b']])
+      expect(yielded).to eq([%w[a err-a], %w[b err-b]])
     end
 
     it 'captures errors during reprocessing into the new result failed list' do
