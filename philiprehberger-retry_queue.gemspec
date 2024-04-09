@@ -10,8 +10,8 @@ Gem::Specification.new do |spec|
 
   spec.summary = 'Batch processor with per-item retry, backoff, and dead letter collection'
   spec.description = 'Processes collections of items with configurable per-item retry logic, ' \
-                       'exponential backoff, and dead letter collection for failed items. ' \
-                       'Returns detailed results with success/failure counts and timing statistics.'
+                     'exponential backoff, and dead letter collection for failed items. ' \
+                     'Returns detailed results with success/failure counts and timing statistics.'
   spec.homepage = 'https://philiprehberger.com/open-source-packages/ruby/philiprehberger-retry_queue'
   spec.license = 'MIT'
 
