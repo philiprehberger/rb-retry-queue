@@ -12,7 +12,10 @@ module Philiprehberger
       # @param backoff [Proc, nil] proc receiving attempt number, returns sleep duration
       # @param retry_on [Array<Class>, nil] exception classes to retry on; nil means retry all
       # @param on_retry [Array<Proc>, Proc, nil] callbacks fired before each retry attempt
-      def initialize(max_retries: 3, concurrency: 1, backoff: nil, retry_on: nil, on_retry: nil)
+      # @param on_failure [Proc, nil] callable invoked with `(item, error)` once per item that
+      #   exhausts retries and moves to the dead-letter list; exceptions raised by the hook are
+      #   swallowed so a faulty hook cannot break the queue
+      def initialize(max_retries: 3, concurrency: 1, backoff: nil, retry_on: nil, on_retry: nil, on_failure: nil)
         raise Error, 'max_retries must be non-negative' unless max_retries.is_a?(Integer) && max_retries >= 0
 
         @max_retries = max_retries
@@ -20,6 +23,7 @@ module Philiprehberger
         @backoff = backoff || DEFAULT_BACKOFF
         @retry_on = retry_on
         @on_retry_hooks = Array(on_retry)
+        @on_failure = on_failure
       end
 
       # Process a collection of items with retry logic.
@@ -54,6 +58,7 @@ module Philiprehberger
         rescue StandardError => e
           if !retryable?(e) || attempts > @max_retries
             failed << { item: item, error: e, attempts: attempts }
+            fire_on_failure_hook(item, e)
             return
           end
 
@@ -72,6 +77,16 @@ module Philiprehberger
 
       def fire_on_retry_hooks(item, error, attempt)
         @on_retry_hooks.each { |hook| hook.call(item, error, attempt) }
+      end
+
+      def fire_on_failure_hook(item, error)
+        return if @on_failure.nil?
+
+        @on_failure.call(item, error)
+      rescue StandardError
+        # Swallow hook errors — this is a best-effort notification and must never
+        # break the queue. Intentionally silent; users can log inside their hook.
+        nil
       end
 
       def now

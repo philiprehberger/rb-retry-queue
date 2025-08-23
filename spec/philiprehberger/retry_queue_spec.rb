@@ -229,6 +229,102 @@ RSpec.describe Philiprehberger::RetryQueue do
     end
   end
 
+  describe 'on_failure hook' do
+    it 'is not called when no hook is provided (default behavior preserved)' do
+      result = described_class.process(['x'], max_retries: 1, backoff: ->(_) { 0 }) { |_| raise 'fail' }
+      expect(result.failed.size).to eq(1)
+      expect(result.failed.first[:item]).to eq('x')
+    end
+
+    it 'is called exactly once per failed item with (item, error)' do
+      calls = []
+      hook = ->(item, error) { calls << [item, error.message] }
+
+      described_class.process(%w[a b c], max_retries: 0, backoff: ->(_) { 0 }, on_failure: hook) do |item|
+        raise "err-#{item}" unless item == 'b'
+      end
+
+      expect(calls.size).to eq(2)
+      expect(calls).to contain_exactly(%w[a err-a], %w[c err-c])
+    end
+
+    it 'is called AFTER retries are exhausted (not on intermediate failures)' do
+      hook_calls = 0
+      hook = ->(_item, _error) { hook_calls += 1 }
+      attempts = 0
+
+      described_class.process(['x'], max_retries: 3, backoff: ->(_) { 0 }, on_failure: hook) do |_|
+        attempts += 1
+        raise 'boom'
+      end
+
+      expect(attempts).to eq(4) # 1 initial + 3 retries
+      expect(hook_calls).to eq(1)
+    end
+
+    it 'is NOT called for successful items' do
+      hook_called = false
+      hook = ->(_item, _error) { hook_called = true }
+
+      described_class.process(%w[a b], on_failure: hook) { |_| nil }
+
+      expect(hook_called).to be false
+    end
+
+    it 'is NOT called for items that succeed after a retry' do
+      hook_called = false
+      hook = ->(_item, _error) { hook_called = true }
+      attempts = 0
+
+      described_class.process(['x'], max_retries: 2, backoff: ->(_) { 0 }, on_failure: hook) do |_|
+        attempts += 1
+        raise 'transient' if attempts < 2
+      end
+
+      expect(hook_called).to be false
+    end
+
+    it 'swallows errors raised by the hook and still records the failure' do
+      raising_hook = ->(_item, _error) { raise 'hook exploded' }
+
+      result = nil
+      expect do
+        result = described_class.process(['x'], max_retries: 1, backoff: ->(_) { 0 }, on_failure: raising_hook) do |_|
+          raise 'fail'
+        end
+      end.not_to raise_error
+
+      expect(result.failed.size).to eq(1)
+      expect(result.failed.first[:item]).to eq('x')
+    end
+
+    it 'is forwarded through Processor constructor' do
+      calls = []
+      hook = ->(item, error) { calls << [item, error.class] }
+      processor = Philiprehberger::RetryQueue::Processor.new(
+        max_retries: 0, backoff: ->(_) { 0 }, on_failure: hook
+      )
+
+      processor.call(['y']) { |_| raise 'boom' }
+
+      expect(calls).to eq([['y', RuntimeError]])
+    end
+
+    it 'receives non-retryable errors (via retry_on) immediately' do
+      calls = []
+      hook = ->(item, error) { calls << [item, error.message] }
+      network_error = Class.new(StandardError)
+      other_error = Class.new(StandardError)
+
+      described_class.process(['x'], max_retries: 3, backoff: ->(_) { 0 },
+                                     retry_on: [network_error], on_failure: hook) do |_|
+        raise other_error, 'not retryable'
+      end
+
+      expect(calls).to eq([['x', 'not retryable']])
+    end
+  end
+
   describe 'DLQ reprocessing' do
     it 'reprocesses failed items and returns a new Result' do
       result = described_class.process(%w[ok fail1 fail2], max_retries: 0, backoff: ->(_) { 0 }) do |item|

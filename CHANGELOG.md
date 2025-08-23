@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-17
+
+### Added
+- `on_failure:` callback for `process` and `Processor`, invoked with `(item, error)` when an item exhausts retries; hook exceptions are swallowed
+
 ## [0.2.1] - 2026-03-31
 
 ### Changed
