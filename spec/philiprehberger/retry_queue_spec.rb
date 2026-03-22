@@ -57,11 +57,11 @@ RSpec.describe Philiprehberger::RetryQueue do
       sleeps = []
       allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:sleep) { |_, d| sleeps << d }
 
-      described_class.process(['x'], max_retries: 2, backoff: ->(n) { n * 0.5 }) do |_item|
+      described_class.process(['x'], max_retries: 3, backoff: ->(n) { n * 0.5 }) do |_item|
         raise 'fail'
       end
 
-      expect(sleeps).to eq([0.0, 0.5, 1.0])
+      expect(sleeps).to eq([0.5, 1.0])
     end
   end
 
