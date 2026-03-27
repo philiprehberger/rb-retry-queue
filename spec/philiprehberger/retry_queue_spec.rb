@@ -235,12 +235,12 @@ RSpec.describe Philiprehberger::RetryQueue do
         elapsed: 1.5
       )
       expect(result.stats).to eq({
-        total: 3,
-        succeeded: 2,
-        failed: 1,
-        success_rate: 2.0 / 3,
-        elapsed: 1.5
-      })
+                                   total: 3,
+                                   succeeded: 2,
+                                   failed: 1,
+                                   success_rate: 2.0 / 3,
+                                   elapsed: 1.5
+                                 })
     end
   end
 
