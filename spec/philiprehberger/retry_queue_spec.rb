@@ -65,6 +65,245 @@ RSpec.describe Philiprehberger::RetryQueue do
     end
   end
 
+  describe 'selective retry (retry_on)' do
+    let(:network_error) { Class.new(StandardError) }
+    let(:validation_error) { Class.new(StandardError) }
+
+    it 'retries only specified exception classes' do
+      attempts = Hash.new(0)
+      result = described_class.process(%w[net val], max_retries: 2, backoff: ->(_) { 0 },
+                                                    retry_on: [network_error]) do |item|
+        attempts[item] += 1
+        raise network_error, 'network' if item == 'net'
+        raise validation_error, 'validation' if item == 'val'
+      end
+
+      expect(attempts['net']).to eq(3) # 1 initial + 2 retries
+      expect(attempts['val']).to eq(1) # no retry, straight to failed
+      expect(result.failed.size).to eq(2)
+    end
+
+    it 'sends non-retryable errors straight to failed without retrying' do
+      attempts = 0
+      result = described_class.process(['x'], max_retries: 5, backoff: ->(_) { 0 },
+                                              retry_on: [network_error]) do |_|
+        attempts += 1
+        raise validation_error, 'not retryable'
+      end
+
+      expect(attempts).to eq(1)
+      expect(result.failed.size).to eq(1)
+      expect(result.failed.first[:error]).to be_a(validation_error)
+      expect(result.failed.first[:attempts]).to eq(1)
+    end
+
+    it 'retries on subclasses of specified exception classes' do
+      sub_error = Class.new(network_error)
+      attempts = 0
+      result = described_class.process(['x'], max_retries: 1, backoff: ->(_) { 0 },
+                                              retry_on: [network_error]) do |_|
+        attempts += 1
+        raise sub_error, 'sub'
+      end
+
+      expect(attempts).to eq(2) # 1 initial + 1 retry
+      expect(result.failed.first[:error]).to be_a(sub_error)
+    end
+
+    it 'retries all errors when retry_on is nil (default)' do
+      attempts = 0
+      described_class.process(['x'], max_retries: 2, backoff: ->(_) { 0 }) do |_|
+        attempts += 1
+        raise 'any error'
+      end
+
+      expect(attempts).to eq(3)
+    end
+
+    it 'supports multiple exception classes in retry_on' do
+      attempts = Hash.new(0)
+      result = described_class.process(%w[a b], max_retries: 1, backoff: ->(_) { 0 },
+                                                retry_on: [network_error, validation_error]) do |item|
+        attempts[item] += 1
+        raise network_error, 'net' if item == 'a'
+        raise validation_error, 'val' if item == 'b'
+      end
+
+      expect(attempts['a']).to eq(2)
+      expect(attempts['b']).to eq(2)
+      expect(result.failed.size).to eq(2)
+    end
+
+    it 'succeeds items that pass after retry with retry_on filter' do
+      attempts = 0
+      result = described_class.process(['x'], max_retries: 2, backoff: ->(_) { 0 },
+                                              retry_on: [network_error]) do |_|
+        attempts += 1
+        raise network_error, 'transient' if attempts < 2
+      end
+
+      expect(result.succeeded).to eq(['x'])
+      expect(result.failed).to be_empty
+    end
+  end
+
+  describe 'retry hooks (on_retry)' do
+    it 'calls on_retry hook before each retry attempt' do
+      hook_calls = []
+      hook = ->(item, error, attempt) { hook_calls << { item: item, error: error.message, attempt: attempt } }
+
+      described_class.process(['x'], max_retries: 2, backoff: ->(_) { 0 }, on_retry: hook) do |_|
+        raise 'boom'
+      end
+
+      expect(hook_calls.size).to eq(2)
+      expect(hook_calls[0]).to eq({ item: 'x', error: 'boom', attempt: 1 })
+      expect(hook_calls[1]).to eq({ item: 'x', error: 'boom', attempt: 2 })
+    end
+
+    it 'supports multiple hooks called in order' do
+      call_order = []
+      hook1 = ->(_item, _error, _attempt) { call_order << :first }
+      hook2 = ->(_item, _error, _attempt) { call_order << :second }
+
+      described_class.process(['x'], max_retries: 1, backoff: ->(_) { 0 }, on_retry: [hook1, hook2]) do |_|
+        raise 'fail'
+      end
+
+      expect(call_order).to eq(%i[first second])
+    end
+
+    it 'does not call on_retry when item succeeds on first attempt' do
+      hook_called = false
+      hook = ->(_item, _error, _attempt) { hook_called = true }
+
+      described_class.process(['x'], on_retry: hook) { |_| nil }
+
+      expect(hook_called).to be false
+    end
+
+    it 'does not call on_retry for the final failed attempt' do
+      hook_calls = 0
+      hook = ->(_item, _error, _attempt) { hook_calls += 1 }
+
+      described_class.process(['x'], max_retries: 2, backoff: ->(_) { 0 }, on_retry: hook) do |_|
+        raise 'fail'
+      end
+
+      # 2 retries = 2 hook calls (not called on initial attempt or when exhausted)
+      expect(hook_calls).to eq(2)
+    end
+
+    it 'receives the correct item, error, and attempt number' do
+      received = []
+      hook = ->(item, error, attempt) { received << [item, error.class, attempt] }
+      custom_error = Class.new(StandardError)
+
+      described_class.process(%w[a b], max_retries: 1, backoff: ->(_) { 0 }, on_retry: hook) do |item|
+        raise custom_error, 'err' if item == 'b'
+      end
+
+      expect(received.size).to eq(1)
+      expect(received[0][0]).to eq('b')
+      expect(received[0][1]).to eq(custom_error)
+      expect(received[0][2]).to eq(1)
+    end
+
+    it 'works with no on_retry hooks (default)' do
+      result = described_class.process(['x'], max_retries: 1, backoff: ->(_) { 0 }) { |_| raise 'fail' }
+      expect(result.failed.size).to eq(1)
+    end
+
+    it 'does not call on_retry when error is not retryable via retry_on' do
+      hook_calls = 0
+      hook = ->(_item, _error, _attempt) { hook_calls += 1 }
+      network_error = Class.new(StandardError)
+      other_error = Class.new(StandardError)
+
+      described_class.process(['x'], max_retries: 3, backoff: ->(_) { 0 },
+                                     retry_on: [network_error], on_retry: hook) do |_|
+        raise other_error, 'not retryable'
+      end
+
+      expect(hook_calls).to eq(0)
+    end
+  end
+
+  describe 'DLQ reprocessing' do
+    it 'reprocesses failed items and returns a new Result' do
+      result = described_class.process(%w[ok fail1 fail2], max_retries: 0, backoff: ->(_) { 0 }) do |item|
+        raise "error-#{item}" unless item == 'ok'
+      end
+
+      reprocessed = result.reprocess_failed { |_item, _error| nil }
+
+      expect(reprocessed).to be_a(Philiprehberger::RetryQueue::Result)
+      expect(reprocessed.succeeded).to eq(%w[fail1 fail2])
+      expect(reprocessed.failed).to be_empty
+    end
+
+    it 'yields each item and its last error' do
+      result = described_class.process(%w[a b], max_retries: 0, backoff: ->(_) { 0 }) do |item|
+        raise "err-#{item}"
+      end
+
+      yielded = []
+      result.reprocess_failed { |item, error| yielded << [item, error.message] }
+
+      expect(yielded).to eq([['a', 'err-a'], ['b', 'err-b']])
+    end
+
+    it 'captures errors during reprocessing into the new result failed list' do
+      result = described_class.process(%w[a b], max_retries: 0, backoff: ->(_) { 0 }) do |_|
+        raise 'original'
+      end
+
+      reprocessed = result.reprocess_failed do |item, _error|
+        raise 'reprocess failed' if item == 'b'
+      end
+
+      expect(reprocessed.succeeded).to eq(['a'])
+      expect(reprocessed.failed.size).to eq(1)
+      expect(reprocessed.failed.first[:item]).to eq('b')
+      expect(reprocessed.failed.first[:error].message).to eq('reprocess failed')
+      expect(reprocessed.failed.first[:attempts]).to eq(1)
+    end
+
+    it 'returns an empty result when there are no failed items' do
+      result = described_class.process(['ok'], backoff: ->(_) { 0 }) { |_| nil }
+
+      reprocessed = result.reprocess_failed { |_item, _error| nil }
+
+      expect(reprocessed.succeeded).to be_empty
+      expect(reprocessed.failed).to be_empty
+    end
+
+    it 'raises when no block is given to reprocess_failed' do
+      result = described_class.process(['x'], max_retries: 0, backoff: ->(_) { 0 }) { |_| raise 'fail' }
+
+      expect { result.reprocess_failed }
+        .to raise_error(Philiprehberger::RetryQueue::Error, /block/)
+    end
+
+    it 'includes elapsed time in reprocessed result stats' do
+      result = described_class.process(['x'], max_retries: 0, backoff: ->(_) { 0 }) { |_| raise 'fail' }
+
+      reprocessed = result.reprocess_failed { |_item, _error| nil }
+
+      expect(reprocessed.stats[:elapsed]).to be_a(Float)
+      expect(reprocessed.stats[:elapsed]).to be >= 0
+    end
+
+    it 'does not modify the original result' do
+      result = described_class.process(%w[a b], max_retries: 0, backoff: ->(_) { 0 }) { |_| raise 'fail' }
+
+      result.reprocess_failed { |_item, _error| nil }
+
+      expect(result.failed.size).to eq(2)
+      expect(result.succeeded).to be_empty
+    end
+  end
+
   describe '#stats' do
     it 'returns processing statistics' do
       result = described_class.process(%w[a b c], max_retries: 0, backoff: ->(_) { 0 }) do |item|

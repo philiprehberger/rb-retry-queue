@@ -10,12 +10,16 @@ module Philiprehberger
       # @param max_retries [Integer] maximum retry attempts per item
       # @param concurrency [Integer] number of concurrent workers (reserved for future use)
       # @param backoff [Proc, nil] proc receiving attempt number, returns sleep duration
-      def initialize(max_retries: 3, concurrency: 1, backoff: nil)
+      # @param retry_on [Array<Class>, nil] exception classes to retry on; nil means retry all
+      # @param on_retry [Array<Proc>, Proc, nil] callbacks fired before each retry attempt
+      def initialize(max_retries: 3, concurrency: 1, backoff: nil, retry_on: nil, on_retry: nil)
         raise Error, 'max_retries must be non-negative' unless max_retries.is_a?(Integer) && max_retries >= 0
 
         @max_retries = max_retries
         @concurrency = concurrency
         @backoff = backoff || DEFAULT_BACKOFF
+        @retry_on = retry_on
+        @on_retry_hooks = Array(on_retry)
       end
 
       # Process a collection of items with retry logic.
@@ -48,14 +52,26 @@ module Philiprehberger
           succeeded << item
           return
         rescue StandardError => e
-          if attempts > @max_retries
+          if !retryable?(e) || attempts > @max_retries
             failed << { item: item, error: e, attempts: attempts }
             return
           end
 
+          fire_on_retry_hooks(item, e, attempts)
+
           sleep_duration = @backoff.call(attempts - 1)
           sleep(sleep_duration) if sleep_duration.positive?
         end
+      end
+
+      def retryable?(error)
+        return true if @retry_on.nil?
+
+        @retry_on.any? { |klass| error.is_a?(klass) }
+      end
+
+      def fire_on_retry_hooks(item, error, attempt)
+        @on_retry_hooks.each { |hook| hook.call(item, error, attempt) }
       end
 
       def now

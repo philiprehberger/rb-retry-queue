@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-29
+
+### Added
+- Selective retry via `retry_on:` parameter to only retry specific exception classes
+- Retry hooks via `on_retry:` parameter with callbacks fired before each retry attempt
+- DLQ reprocessing via `Result#reprocess_failed` to iterate over failed items with their last error
+
 ## [0.1.2] - 2026-03-24
 
 ### Fixed
