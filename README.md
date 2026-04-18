@@ -67,6 +67,20 @@ result = Philiprehberger::RetryQueue.process(items, max_retries: 3, on_retry: [l
 end
 ```
 
+### Dead-letter Notifications
+
+```ruby
+on_failure = ->(item, error) { Rails.logger.error("Dead-lettered #{item}: #{error.message}") }
+
+result = Philiprehberger::RetryQueue.process(items, max_retries: 3, on_failure: on_failure) do |item|
+  process_item(item)
+end
+```
+
+The hook fires once per item that exhausts its retries, just as the item is recorded in
+`Result#failed`. Exceptions raised inside the hook are swallowed so a faulty callback cannot
+break the queue.
+
 ### DLQ Reprocessing
 
 ```ruby
@@ -97,7 +111,8 @@ stats = result.stats
 
 | Method | Description |
 |--------|-------------|
-| `.process(items, max_retries:, concurrency:, backoff:, retry_on:, on_retry:) { \|item\| }` | Process items with retry logic |
+| `.process(items, max_retries:, concurrency:, backoff:, retry_on:, on_retry:, on_failure:) { \|item\| }` | Process items with retry logic |
+| `on_failure:` | Callable `(item, error)` invoked once per item that exhausts retries; hook errors are swallowed |
 | `Result#succeeded` | Array of successfully processed items |
 | `Result#failed` | Array of hashes with `:item`, `:error`, `:attempts` |
 | `Result#stats` | Hash with `:total`, `:succeeded`, `:failed`, `:success_rate`, `:elapsed` |
