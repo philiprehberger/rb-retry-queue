@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-19
+
+### Added
+- `Result#success_rate` — ratio of succeeded to total items as a Float in `[0.0, 1.0]`; returns `0.0` for empty batches
+
 ## [0.3.0] - 2026-04-17
 
 ### Added

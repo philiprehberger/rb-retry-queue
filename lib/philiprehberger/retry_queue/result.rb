@@ -28,9 +28,21 @@ module Philiprehberger
           total: total,
           succeeded: @succeeded.size,
           failed: @failed.size,
-          success_rate: total.zero? ? 0.0 : @succeeded.size.to_f / total,
+          success_rate: success_rate,
           elapsed: @elapsed
         }
+      end
+
+      # Ratio of succeeded items to total processed items.
+      #
+      # Returns 0.0 for an empty batch to avoid ZeroDivisionError.
+      #
+      # @return [Float] ratio in the range [0.0, 1.0]
+      def success_rate
+        total = @succeeded.size + @failed.size
+        return 0.0 if total.zero?
+
+        @succeeded.size.to_f / total
       end
 
       # Reprocess failed items by yielding each item and its last error to the block.

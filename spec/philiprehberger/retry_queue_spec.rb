@@ -425,6 +425,39 @@ RSpec.describe Philiprehberger::RetryQueue do
     end
   end
 
+  describe '#success_rate' do
+    it 'returns 0.0 for an empty batch' do
+      result = described_class.process([]) { |_| nil }
+      expect(result.success_rate).to eq(0.0)
+    end
+
+    it 'returns 1.0 when all items succeed' do
+      result = described_class.process(%w[a b c], backoff: ->(_) { 0 }) { |_| nil }
+      expect(result.success_rate).to eq(1.0)
+    end
+
+    it 'returns 0.0 when all items fail' do
+      result = described_class.process(%w[a b c], max_retries: 0, backoff: ->(_) { 0 }) do |_|
+        raise 'fail'
+      end
+      expect(result.success_rate).to eq(0.0)
+    end
+
+    it 'returns 0.75 for 3 succeeded and 1 failed' do
+      result = described_class.process(%w[a b c d], max_retries: 0, backoff: ->(_) { 0 }) do |item|
+        raise 'fail' if item == 'd'
+      end
+      expect(result.success_rate).to eq(0.75)
+    end
+
+    it 'returns a Float (not Rational or Integer)' do
+      result = described_class.process(%w[a b c d], max_retries: 0, backoff: ->(_) { 0 }) do |item|
+        raise 'fail' if item == 'd'
+      end
+      expect(result.success_rate).to be_a(Float)
+    end
+  end
+
   describe 'edge cases' do
     it 'processes a single item successfully' do
       result = described_class.process(['only'], backoff: ->(_) { 0 }) { |_| nil }
