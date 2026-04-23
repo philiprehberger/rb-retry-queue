@@ -65,6 +65,67 @@ RSpec.describe Philiprehberger::RetryQueue do
     end
   end
 
+  describe 'jitter' do
+    it 'multiplies the computed backoff delay by (1 + rand * jitter)' do
+      sleeps = []
+      allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:sleep) { |_, d| sleeps << d }
+      # Stub rand on the Processor to a deterministic value so we can assert exact delays.
+      allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:rand).and_return(0.5)
+
+      described_class.process(['x'], max_retries: 2, jitter: 0.5, backoff: ->(n) { (n + 1) * 1.0 }) do |_|
+        raise 'fail'
+      end
+
+      # backoff returns 1.0, 2.0; jitter multiplier = 1 + 0.5 * 0.5 = 1.25
+      expect(sleeps).to eq([1.0 * 1.25, 2.0 * 1.25])
+    end
+
+    it 'does not alter the delay when jitter is 0.0 (default)' do
+      sleeps = []
+      allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:sleep) { |_, d| sleeps << d }
+
+      described_class.process(['x'], max_retries: 2, backoff: ->(n) { (n + 1) * 1.0 }) do |_|
+        raise 'fail'
+      end
+
+      expect(sleeps).to eq([1.0, 2.0])
+    end
+
+    it 'passes the raw attempt number (not jittered) to the backoff proc' do
+      received_attempts = []
+      backoff = lambda do |n|
+        received_attempts << n
+        1.0
+      end
+      allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:sleep)
+      allow_any_instance_of(Philiprehberger::RetryQueue::Processor).to receive(:rand).and_return(0.25)
+
+      described_class.process(['x'], max_retries: 2, jitter: 1.0, backoff: backoff) { |_| raise 'fail' }
+
+      expect(received_attempts).to eq([0, 1])
+    end
+
+    it 'raises ArgumentError when jitter is negative' do
+      expect { described_class.process(['x'], jitter: -0.1) { |_| nil } }
+        .to raise_error(ArgumentError, /jitter/)
+    end
+
+    it 'raises ArgumentError when jitter is greater than 1.0' do
+      expect { described_class.process(['x'], jitter: 1.5) { |_| nil } }
+        .to raise_error(ArgumentError, /jitter/)
+    end
+
+    it 'raises ArgumentError when jitter is not Numeric' do
+      expect { described_class.process(['x'], jitter: 'foo') { |_| nil } }
+        .to raise_error(ArgumentError, /jitter/)
+    end
+
+    it 'accepts the boundaries 0.0 and 1.0' do
+      expect { described_class.process(['x'], jitter: 0.0) { |_| nil } }.not_to raise_error
+      expect { described_class.process(['x'], jitter: 1.0) { |_| nil } }.not_to raise_error
+    end
+  end
+
   describe 'selective retry (retry_on)' do
     let(:network_error) { Class.new(StandardError) }
     let(:validation_error) { Class.new(StandardError) }
@@ -609,6 +670,44 @@ RSpec.describe Philiprehberger::RetryQueue do
                                    success_rate: 2.0 / 3,
                                    elapsed: 1.5
                                  })
+    end
+
+    describe '#empty?' do
+      it 'returns true when stats[:total] is 0' do
+        result = described_class.new(succeeded: [], failed: [], elapsed: 0.0)
+        expect(result.empty?).to be true
+      end
+
+      it 'returns false when at least one item succeeded' do
+        result = described_class.new(succeeded: ['a'], failed: [], elapsed: 0.0)
+        expect(result.empty?).to be false
+      end
+
+      it 'returns false when at least one item failed' do
+        result = described_class.new(
+          succeeded: [],
+          failed: [{ item: 'a', error: RuntimeError.new, attempts: 1 }],
+          elapsed: 0.0
+        )
+        expect(result.empty?).to be false
+      end
+    end
+
+    describe '#size' do
+      it 'returns stats[:total]' do
+        result = described_class.new(
+          succeeded: %w[a b],
+          failed: [{ item: 'c', error: RuntimeError.new, attempts: 1 }],
+          elapsed: 0.0
+        )
+        expect(result.size).to eq(3)
+        expect(result.size).to eq(result.stats[:total])
+      end
+
+      it 'returns 0 for an empty batch' do
+        result = described_class.new(succeeded: [], failed: [], elapsed: 0.0)
+        expect(result.size).to eq(0)
+      end
     end
   end
 

@@ -7,7 +7,8 @@ module Philiprehberger
       # Default backoff strategy: exponential with base 0.1s.
       DEFAULT_BACKOFF = ->(attempt) { 0.1 * (2**attempt) }
 
-      # @param max_retries [Integer] maximum retry attempts per item
+      # @param max_retries [Integer] maximum retry attempts per item. `max_retries: 0` means
+      #   one attempt with no retries (not zero attempts).
       # @param concurrency [Integer] number of concurrent workers (reserved for future use)
       # @param backoff [Proc, nil] proc receiving attempt number, returns sleep duration
       # @param retry_on [Array<Class>, nil] exception classes to retry on; nil means retry all
@@ -15,8 +16,12 @@ module Philiprehberger
       # @param on_failure [Proc, nil] callable invoked with `(item, error)` once per item that
       #   exhausts retries and moves to the dead-letter list; exceptions raised by the hook are
       #   swallowed so a faulty hook cannot break the queue
-      def initialize(max_retries: 3, concurrency: 1, backoff: nil, retry_on: nil, on_retry: nil, on_failure: nil)
+      # @param jitter [Numeric] fraction in `0.0..1.0` applied to the computed backoff delay as
+      #   `delay * (1 + rand * jitter)`. Defaults to `0.0` (no jitter).
+      def initialize(max_retries: 3, concurrency: 1, backoff: nil, retry_on: nil, on_retry: nil, on_failure: nil,
+                     jitter: 0.0)
         raise Error, 'max_retries must be non-negative' unless max_retries.is_a?(Integer) && max_retries >= 0
+        raise ArgumentError, 'jitter must be a Numeric in 0.0..1.0' unless valid_jitter?(jitter)
 
         @max_retries = max_retries
         @concurrency = concurrency
@@ -24,6 +29,7 @@ module Philiprehberger
         @retry_on = retry_on
         @on_retry_hooks = Array(on_retry)
         @on_failure = on_failure
+        @jitter = jitter.to_f
       end
 
       # Process a collection of items with retry logic.
@@ -64,9 +70,19 @@ module Philiprehberger
 
           fire_on_retry_hooks(item, e, attempts)
 
-          sleep_duration = @backoff.call(attempts - 1)
+          sleep_duration = apply_jitter(@backoff.call(attempts - 1))
           sleep(sleep_duration) if sleep_duration.positive?
         end
+      end
+
+      def apply_jitter(delay)
+        return delay if @jitter.zero?
+
+        delay * (1 + (rand * @jitter))
+      end
+
+      def valid_jitter?(jitter)
+        jitter.is_a?(Numeric) && jitter >= 0.0 && jitter <= 1.0
       end
 
       def retryable?(error)

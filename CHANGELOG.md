@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-23
+
+### Added
+- Optional `jitter:` (0.0..1.0) on `RetryQueue.process` — multiplies backoff delay by `1 + rand * jitter` to reduce thundering-herd risk.
+- `Result#empty?` and `Result#size` convenience methods.
+- YARD clarification that `max_retries: 0` means one attempt, no retries.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added

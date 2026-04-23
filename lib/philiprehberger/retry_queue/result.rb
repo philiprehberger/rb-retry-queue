@@ -33,6 +33,20 @@ module Philiprehberger
         }
       end
 
+      # Whether the batch processed zero items.
+      #
+      # @return [Boolean] true when no items were processed (succeeded and failed both empty)
+      def empty?
+        stats[:total].zero?
+      end
+
+      # Total number of items processed, including both succeeded and failed.
+      #
+      # @return [Integer] `stats[:total]`
+      def size
+        stats[:total]
+      end
+
       # Ratio of succeeded items to total processed items.
       #
       # Returns 0.0 for an empty batch to avoid ZeroDivisionError.

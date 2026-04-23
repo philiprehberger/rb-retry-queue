@@ -45,6 +45,20 @@ result = Philiprehberger::RetryQueue.process(items, max_retries: 5, backoff: ->(
 end
 ```
 
+### Jitter
+
+Reduce thundering-herd risk by randomizing the backoff delay. Pass a fraction in
+`0.0..1.0`; the computed delay is multiplied by `1 + rand * jitter`. A value of
+`0.0` (default) disables jitter.
+
+```ruby
+result = Philiprehberger::RetryQueue.process(items, max_retries: 3, jitter: 0.3) do |item|
+  external_api_call(item)
+end
+```
+
+Values outside `0.0..1.0` or non-Numeric values raise `ArgumentError`.
+
 ### Selective Retry
 
 ```ruby
@@ -118,12 +132,16 @@ result.success_rate # => 0.92
 
 | Method | Description |
 |--------|-------------|
-| `.process(items, max_retries:, concurrency:, backoff:, retry_on:, on_retry:, on_failure:) { \|item\| }` | Process items with retry logic |
+| `.process(items, max_retries:, concurrency:, backoff:, retry_on:, on_retry:, on_failure:, jitter:) { \|item\| }` | Process items with retry logic |
+| `max_retries:` | Integer >= 0. `0` means one attempt with no retries (not zero attempts) |
+| `jitter:` | Numeric in `0.0..1.0`; multiplies backoff delay by `1 + rand * jitter`. Defaults to `0.0` |
 | `on_failure:` | Callable `(item, error)` invoked once per item that exhausts retries; hook errors are swallowed |
 | `Result#succeeded` | Array of successfully processed items |
 | `Result#failed` | Array of hashes with `:item`, `:error`, `:attempts` |
 | `Result#stats` | Hash with `:total`, `:succeeded`, `:failed`, `:success_rate`, `:elapsed` |
 | `Result#success_rate` | Float in `[0.0, 1.0]`; ratio of succeeded to total items (`0.0` for empty batches) |
+| `Result#empty?` | `true` when `stats[:total]` is 0 |
+| `Result#size` | Returns `stats[:total]` (succeeded + failed count) |
 | `Result#reprocess_failed { \|item, error\| }` | Reprocess failed items, returns a new Result |
 
 ## Development
