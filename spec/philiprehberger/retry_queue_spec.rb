@@ -519,6 +519,43 @@ RSpec.describe Philiprehberger::RetryQueue do
     end
   end
 
+  describe '#failure_rate' do
+    it 'returns 0.0 for an empty batch' do
+      result = Philiprehberger::RetryQueue::Result.new(succeeded: [], failed: [], elapsed: 0.0)
+      expect(result.failure_rate).to eq(0.0)
+    end
+
+    it 'returns 0.0 when all items succeed' do
+      result = Philiprehberger::RetryQueue::Result.new(succeeded: [1, 2, 3], failed: [], elapsed: 0.0)
+      expect(result.failure_rate).to eq(0.0)
+    end
+
+    it 'returns 1.0 when all items fail' do
+      failed = [
+        { item: 'a', error: RuntimeError.new, attempts: 1 },
+        { item: 'b', error: RuntimeError.new, attempts: 1 },
+        { item: 'c', error: RuntimeError.new, attempts: 1 }
+      ]
+      result = Philiprehberger::RetryQueue::Result.new(succeeded: [], failed: failed, elapsed: 0.0)
+      expect(result.failure_rate).to eq(1.0)
+    end
+
+    it 'returns 0.25 for 3 succeeded and 1 failed' do
+      failed = [{ item: 'd', error: RuntimeError.new, attempts: 1 }]
+      result = Philiprehberger::RetryQueue::Result.new(succeeded: %w[a b c], failed: failed, elapsed: 0.0)
+      expect(result.failure_rate).to eq(0.25)
+    end
+
+    it 'is the complement of success_rate (sums to ~1.0) for non-empty results' do
+      failed = [
+        { item: 'x', error: RuntimeError.new, attempts: 1 },
+        { item: 'y', error: RuntimeError.new, attempts: 1 }
+      ]
+      result = Philiprehberger::RetryQueue::Result.new(succeeded: %w[a b c], failed: failed, elapsed: 0.0)
+      expect(result.success_rate + result.failure_rate).to be_within(1e-9).of(1.0)
+    end
+  end
+
   describe 'edge cases' do
     it 'processes a single item successfully' do
       result = described_class.process(['only'], backoff: ->(_) { 0 }) { |_| nil }

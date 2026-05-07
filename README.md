@@ -126,7 +126,12 @@ stats = result.stats
 ```ruby
 result = Philiprehberger::RetryQueue.process(items, max_retries: 3) { |item| call(item) }
 result.success_rate # => 0.92
+result.failure_rate # => 0.08
 ```
+
+`Result#failure_rate` is the counterpart to `#success_rate` and pairs naturally with
+it — for any non-empty Result, `success_rate + failure_rate` sums to `1.0`. Empty
+batches return `0.0` for both.
 
 ## API
 
@@ -140,6 +145,7 @@ result.success_rate # => 0.92
 | `Result#failed` | Array of hashes with `:item`, `:error`, `:attempts` |
 | `Result#stats` | Hash with `:total`, `:succeeded`, `:failed`, `:success_rate`, `:elapsed` |
 | `Result#success_rate` | Float in `[0.0, 1.0]`; ratio of succeeded to total items (`0.0` for empty batches) |
+| `Result#failure_rate` | Ratio of failed items to total (0.0..1.0); pairs with success_rate |
 | `Result#empty?` | `true` when `stats[:total]` is 0 |
 | `Result#size` | Returns `stats[:total]` (succeeded + failed count) |
 | `Result#reprocess_failed { \|item, error\| }` | Reprocess failed items, returns a new Result |

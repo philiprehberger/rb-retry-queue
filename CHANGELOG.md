@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-07
+
+### Added
+- `Result#failure_rate` — counterpart to `#success_rate`, returns the ratio of failed items to total. Returns `0.0` for empty batches.
+
 ## [0.5.0] - 2026-04-23
 
 ### Added
